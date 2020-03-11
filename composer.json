@@ -19,9 +19,10 @@
             "email": "federico.balderas@openpay.mx"
         }
     ],
-    "extra": {
-        "map": [
-            ["*", "Openpay/Stores"]
-        ]
+    "autoload": {
+        "files": [ "registration.php" ],
+        "psr-4": {
+            "Openpay\\Stores\\": ""
+        }
     }
 }
