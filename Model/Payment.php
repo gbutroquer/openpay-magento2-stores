@@ -173,6 +173,7 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
         try {
 
             $customer_data = array(
+                'requires_account' => false,
                 'name' => $billing->getFirstname(),
                 'last_name' => $billing->getLastname(),
                 'phone_number' => $billing->getTelephone(),
@@ -270,6 +271,16 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
                 $openpay_customer_local->addData($data)->save();                    
             } else {
                 $openpay_customer = $this->getOpenpayCustomer($has_openpay_account->openpay_id);
+                if($openpay_customer === false){
+                    $openpay_customer = $this->createOpenpayCustomer($customer_data);
+                    $this->logger->debug('#update openpay_customer', array('$openpay_customer_old' => $has_openpay_account->openpay_id, '$openpay_customer_old_new' => $openpay_customer->id));
+
+                    // Se actualiza en BD la relación
+                    $openpay_customer_local = $this->openpayCustomerFactory->create();
+                    $openpay_customer_local_update = $openpay_customer_local->load($has_openpay_account->openpay_customer_id);
+                    $openpay_customer_local_update->setOpenpayId($openpay_customer->id);
+                    $openpay_customer_local_update->save();
+                }
             }
             
             return $openpay_customer;
@@ -300,9 +311,13 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
     public function getOpenpayCustomer($openpay_customer_id) {
         try {
             $openpay = $this->getOpenpayInstance();
-            return $openpay->customers->get($openpay_customer_id);            
+            $customer = $openpay->customers->get($openpay_customer_id);
+            if(isset($customer->balance)){
+                return false;
+            }
+            return $customer;          
         } catch (\Exception $e) {
-            throw new \Magento\Framework\Validator\Exception(__($e->getMessage()));
+            return false;
         }        
     }
     
@@ -471,10 +486,10 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
      * @return mixed
      */
     public function createWebhook() {
-        $protocol = $this->hostSecure() === true ? 'https://' : 'http://';
-        $uri = $_SERVER['HTTP_HOST']."/openpay/index/webhook";
+        $base_url = $this->_storeManager->getStore()->getBaseUrl(\Magento\Framework\UrlInterface::URL_TYPE_WEB);
+        $uri = $base_url."openpay/index/webhook";
         $webhook_data = array(
-            'url' => $protocol.$uri,
+            'url' => $uri,
             'event_types' => array(
                 'verification',
                 'charge.succeeded',
@@ -492,7 +507,7 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
             )
         );
 
-        $openpay = \Openpay::getInstance($this->merchant_id, $this->sk);
+        $openpay = \Openpay::getInstance($this->merchant_id, $this->sk, $this->country);
         \Openpay::setSandboxMode($this->is_sandbox);
 
         $userAgent = "Openpay-MTO2".$this->country."/v2";
@@ -525,7 +540,7 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
     }
 
     public function getOpenpayInstance() {
-        $openpay = \Openpay::getInstance($this->merchant_id, $this->sk);
+        $openpay = \Openpay::getInstance($this->merchant_id, $this->sk, $this->country);
         \Openpay::setSandboxMode($this->is_sandbox);
         
         $userAgent = "Openpay-MTO2".$this->country."/v2";
